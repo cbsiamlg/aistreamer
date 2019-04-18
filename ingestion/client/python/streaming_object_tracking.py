@@ -53,78 +53,97 @@ from google.cloud.videointelligence import types
 
 
 def stream(file_object, chunk_size):
-  """Reads a file in chunks."""
-  while True:
-    data = file_object.read(chunk_size)
-    if not data:
-      break
-    yield data
+    """Reads a file in chunks."""
+    while True:
+        data = file_object.read(chunk_size)
+        if not data:
+            break
+        yield data
 
 
-def streaming_annotate(stream_file):
-  """Annotate a local video file through streaming API."""
+def streaming_annotate(stream_file, out_file):
+    """Annotate a local video file through streaming API."""
 
-  client = videointelligence.StreamingVideoIntelligenceServiceClient()
+    client = videointelligence.StreamingVideoIntelligenceServiceClient()
 
-  # Set the chunk size to 5MB (recommended less than 10MB).
-  chunk_size = 5 * 1024 * 1024
+    # Set the chunk size to 5MB (recommended less than 10MB).
+    chunk_size = 5 * 1024 * 1024
 
-  # Open file.
-  with open(stream_file) as video_file:
-    requests = (
-      types.StreamingAnnotateVideoRequest(input_content=chunk)
-      for chunk in stream(video_file, chunk_size))
+    # Open file.
+    with open(stream_file) as video_file:
+        requests = (
+          types.StreamingAnnotateVideoRequest(input_content=chunk)
+          for chunk in stream(video_file, chunk_size)
+        )
 
-    # Set streaming config.
-    config = types.StreamingVideoConfig(
-        feature=enums.StreamingFeature.STREAMING_OBJECT_TRACKING)
-    config_request = types.StreamingAnnotateVideoRequest(video_config=config)
-    # streaming_annotate_video returns a generator.
-    # timeout argument specifies the maximum allowable time duration between
-    # the time that the last packet is sent to Google video intelligence API
-    # and the time that an annotation result is returned from the API.
-    # timeout argument is represented in number of seconds.
-    responses = client.streaming_annotate_video(
-        config_request, requests, timeout=10800)
+        # Set streaming config.
+        config = types.StreamingVideoConfig(feature=enums.StreamingFeature.STREAMING_OBJECT_TRACKING)
+        config_request = types.StreamingAnnotateVideoRequest(video_config=config)
+        # streaming_annotate_video returns a generator.
+        # timeout argument specifies the maximum allowable time duration between
+        # the time that the last packet is sent to Google video intelligence API
+        # and the time that an annotation result is returned from the API.
+        # timeout argument is represented in number of seconds.
+        responses = client.streaming_annotate_video(config_request, requests, timeout=10800)
 
-    print('\nReading response.')
-    # Retrieve results from the response generator.
-    for response in responses:
-      object_annotations = response.annotation_results.object_annotations
+        print('[ANALYSIS] Reading response.')
+        with open(out_file, "w", 0) as out_handle:
+            print("[ANALYSIS] Opened output analysis file at {}".format(out_file))
+            # Retrieve results from the response generator.
+            for response in responses:
+                object_annotations = response.annotation_results.object_annotations
 
-      # When object_annotations is empty, no object is found.
-      if object_annotations:
-        for annotation in object_annotations:
-          description = annotation.entity.description
-          confidence = annotation.confidence
-          track_id = annotation.track_id
+                # When object_annotations is empty, no object is found.
+                if object_annotations:
+                    to_write = []
+                    for annotation in object_annotations:
+                        description = annotation.entity.description
+                        confidence = annotation.confidence
+                        track_id = annotation.track_id
 
-          print('Entity description: {}'.format(description))
-          print('Track Id: {}'.format(track_id))
-          if annotation.entity.entity_id:
-            print('Entity id: {}'.format(annotation.entity.entity_id))
+                        # print('[ANALYSIS] Entity description: {}'.format(description))
+                        # print('[ANALYSIS] Track Id: {}'.format(track_id))
+                        # if annotation.entity.entity_id:
+                        #     print('[ANALYSIS] Entity id: {}'.format(annotation.entity.entity_id))
 
-          print('Confidence: {}'.format(confidence))
+                        # print('[ANALYSIS] Confidence: {}'.format(confidence))
 
-          # In streaming mode, len(annotation.frames) is always 1, and the frames
-          # in the same response share the same time_offset.
-          frame = annotation.frames[0]
-          box = frame.normalized_bounding_box
-          print('Time: {}s'.format(
-              frame.time_offset.seconds + frame.time_offset.nanos / 1e9))
-          print('Bounding box position:')
-          print('\tleft  : {}'.format(box.left))
-          print('\ttop   : {}'.format(box.top))
-          print('\tright : {}'.format(box.right))
-          print('\tbottom: {}'.format(box.bottom))
-          print('\n')
+                        # In streaming mode, len(annotation.frames) is always 1, and the frames
+                        # in the same response share the same time_offset.
+                        frame = annotation.frames[0]
+                        box = frame.normalized_bounding_box
+                        time = frame.time_offset.seconds + frame.time_offset.nanos / 1e9
+                        # print('[ANALYSIS] Time: {}s'.format(time))
+                        # print('[ANALYSIS] Bounding box position:')
+                        # print('[ANALYSIS] \tleft  : {}'.format(box.left))
+                        # print('[ANALYSIS] \ttop   : {}'.format(box.top))
+                        # print('[ANALYSIS] \tright : {}'.format(box.right))
+                        # print('[ANALYSIS] \tbottom: {}'.format(box.bottom))
+                        # print('\n')
+                        cols = [
+                            description,
+                            track_id,
+                            confidence,
+                            time,
+                            box.left,
+                            box.top,
+                            box.right,
+                            box.bottom,
+                        ]
+                        line_to_write = ",".join(str(col) for col in cols) + "\n"
+                        # print("[ANALYSIS] line: ", line_to_write)
+                        to_write.append(line_to_write)
+                    # print("[ANALYSIS] Writing labels!")
+                    out_handle.writelines(to_write)
+                    out_handle.flush()
 
 
 if __name__ == '__main__':
-  parser = argparse.ArgumentParser(
-      description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-  parser.add_argument(
-      'file_path', help='Local file location for streaming video annotation.')
-  args = parser.parse_args()
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        'file_path', help='Local file location for streaming video annotation.')
+    parser.add_argument('output_file', help='Local file location to store entities')
+    args = parser.parse_args()
 
-  streaming_annotate(args.file_path)
+    streaming_annotate(args.file_path, args.output_file)
