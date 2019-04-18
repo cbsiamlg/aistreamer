@@ -112,6 +112,12 @@ if __name__ == "__main__":
     })
     print("[PLAYER] Created labels generator")
     fps = cap.get(cv2.CAP_PROP_FPS)
+    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+    ret, frame = cap.read()
+    fshape = frame.shape
+    fheight = fshape[0]
+    fwidth = fshape[1]
+    out = cv2.VideoWriter('output.avi', fourcc, 20.0, (fwidth, fheight))
     # Get an initial set of labels
     labels = labels_generator.next().sort_values(by=["time"], ascending=True)
     while cap.isOpened():
@@ -129,6 +135,7 @@ if __name__ == "__main__":
             print("[PLAYER] We have %d labels" % len(labels))
             draw_labels(frame, get_active_labels(labels, ts))
             cv2.imshow("Video", frame)
+            out.write(frame)
 
             # Press Q on keyboard to  exit
             if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -136,5 +143,6 @@ if __name__ == "__main__":
 
     # When everything done, release the video capture object
     cap.release()
+    out.release()
     # Closes all the frames
     cv2.destroyAllWindows()
